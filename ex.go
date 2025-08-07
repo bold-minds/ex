@@ -1,7 +1,6 @@
 package ex
 
 import (
-	"errors"
 	"fmt"
 )
 
@@ -21,6 +20,22 @@ const (
 	// ExTypeApplicationFailure indicates that the application tried to perform an action that is invalid
 	ExTypeApplicationFailure
 )
+
+// String returns a string representation of the ExType for debugging and logging
+func (et ExType) String() string {
+	switch et {
+	case ExTypeIncorrectData:
+		return "IncorrectData"
+	case ExTypeLoginRequired:
+		return "LoginRequired"
+	case ExTypePermissionDenied:
+		return "PermissionDenied"
+	case ExTypeApplicationFailure:
+		return "ApplicationFailure"
+	default:
+		return fmt.Sprintf("Unknown(%d)", int(et))
+	}
+}
 
 // Err represents the error to be logged
 type Err interface {
@@ -58,17 +73,30 @@ func (e Exception) InnerError() error {
 	return e.innerError
 }
 
-// WithInnerError sets the value of the inner error
+// WithInnerError returns a new Exception with the specified inner error.
+// This method creates a copy of the current Exception, preserving immutability.
+// The inner error can be nil to clear any existing inner error.
 func (e Exception) WithInnerError(err error) Exception {
 	e.innerError = err
 	return e
 }
 
 func (e Exception) Error() string {
-	return fmt.Sprintf("%s %+v", e.message, e.innerError)
+	if e.innerError != nil && e.innerError.Error() != "" {
+		return fmt.Sprintf("%s: %s", e.message, e.innerError.Error())
+	}
+	return e.message
 }
 
-// New creates an exception with a message
+// Unwrap returns the inner error for errors.Is and errors.As compatibility
+func (e Exception) Unwrap() error {
+	return e.innerError
+}
+
+// New creates an exception with the specified code, ID, and message.
+// The code should be one of the predefined ExType constants.
+// The ID is typically an HTTP status code or application-specific error code.
+// The message should be a human-readable description of the error.
 func New(code ExType, id int, message string) Exception {
-	return Exception{code: code, id: id, message: message, innerError: errors.New("")}
+	return Exception{code: code, id: id, message: message, innerError: nil}
 }

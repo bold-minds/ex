@@ -1,0 +1,12 @@
+{
+    "cSpell.ignorePaths": [
+        ".vscode/",
+        ".golangci.yml",
+        "validate.sh",
+        "go.mod",
+        "go.sum"
+    ],
+    "cSpell.words": [
+        "stretchr"
+    ]
+}
