@@ -1,18 +1,49 @@
-name: tests
-on: [push]
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
-  build:
+  validate:
+    name: Validation Pipeline
     runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        go-version: ['1.19', '1.20', '1.21', '1.22']
+    
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22.3'
-      - name: Install dependencies
-        run: go get ./...
-      - name: Build
-        run: go build -v ./...
-      - name: Test with the Go CLI
-        run: go test ./...
+          go-version: ${{ matrix.go-version }}
+      
+      - name: Cache Go modules
+        uses: actions/cache@v3
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+      
+      - name: Make validation script executable
+        run: chmod +x ./scripts/validate.sh
+      
+      - name: Run validation pipeline
+        run: ./scripts/validate.sh ci
+        env:
+          COVERAGE_THRESHOLD: 85
+      
+      - name: Upload coverage reports
+        if: matrix.go-version == '1.22'
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.out
+          flags: unittests
+          name: codecov-umbrella
