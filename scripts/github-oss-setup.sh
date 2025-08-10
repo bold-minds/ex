@@ -221,7 +221,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          token: \${{ steps.app-token.outputs.token }}
+          persist-credentials: false
           
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -233,16 +233,26 @@ jobs:
           ./scripts/validate.sh
           
       - name: Commit Badge Updates
+        env:
+          GITHUB_TOKEN: \${{ steps.app-token.outputs.token }}
         run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "Badge Automation Bot"
+          # Configure git with GitHub App identity and authentication
+          git config --global user.name "Badge Automation Bot"
+          git config --global user.email "action@github.com"
           
-          if [[ -n "\$(git status --porcelain)" ]]; then
-            git add .github/badges/
-            git commit -m "chore: update badges [skip ci]"
-            git push
-          else
+          # Configure git to use the GitHub App token for authentication
+          git config --global url."https://x-access-token:\${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
+          
+          # Add badge files to git
+          git add .github/badges/
+          
+          # Commit if there are changes
+          if git diff --staged --quiet; then
             echo "No badge changes to commit"
+          else
+            git commit -m "chore: update badges from CI run \${{ github.run_number }} [skip ci]"
+            # Push with GitHub App token authentication
+            git push origin HEAD:main
           fi
 EOF
     
@@ -257,9 +267,20 @@ EOF
     echo "   - BADGE_BOT_APP_ID: [Your App ID] (as variable)"
     echo "   - BADGE_BOT_PRIVATE_KEY: [Downloaded private key] (as secret)"
     echo "5. Deploy workflow: cp badge-workflow-template.yml .github/workflows/update-badges.yml"
-    echo "6. Update the workflow template with your actual App ID"
     echo ""
-    echo "💡 The workflow template has been created and is ready to deploy once you complete the manual setup steps."
+    echo "🚨 CRITICAL: Repository Ruleset Bypass Configuration"
+    echo "6. Add GitHub App to repository ruleset bypass list:"
+    echo "   - Go to: https://github.com/$REPO_OWNER/$REPO_NAME/settings/rules"
+    echo "   - Edit the main branch ruleset"
+    echo "   - Add your GitHub App ID to bypass actors with 'bypass_mode: always'"
+    echo "   - Save the configuration"
+    echo ""
+    echo "⚠️  IMPORTANT: Both repository rulesets AND branch protection rules can block badge commits"
+    echo "   If badge automation fails, temporarily disable protection rules for testing"
+    echo ""
+    echo "💡 The workflow template includes research-backed authentication fixes:"
+    echo "   - persist-credentials: false (prevents token conflicts)"
+    echo "   - git URL rewriting (enables GitHub App authentication)"
     echo ""
 
 # Enable issues

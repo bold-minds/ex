@@ -238,6 +238,41 @@ func TestExType_String(t *testing.T) {
 	}
 }
 
+func TestExTypeCasting(t *testing.T) {
+	// Test that users can cast any int to ExType
+	customCode42 := ex.ExType(42)
+	customCode999 := ex.ExType(999)
+	customCode1 := ex.ExType(1)
+
+	// Create exceptions with custom codes
+	exc1 := ex.New(customCode42, 500, "Custom error code 42")
+	exc2 := ex.New(customCode999, 400, "Custom error code 999")
+	exc3 := ex.New(customCode1, 200, "Custom error code 1")
+
+	// Verify the codes are preserved
+	if exc1.Code() != customCode42 {
+		t.Errorf("Expected code %d, got %d", customCode42, exc1.Code())
+	}
+
+	if exc2.Code() != customCode999 {
+		t.Errorf("Expected code %d, got %d", customCode999, exc2.Code())
+	}
+
+	if exc3.Code() != customCode1 {
+		t.Errorf("Expected code %d, got %d", customCode1, exc3.Code())
+	}
+
+	// Test String() method with custom codes
+	t.Logf("Custom code 42 string: %s", customCode42.String())
+	t.Logf("Custom code 999 string: %s", customCode999.String())
+	t.Logf("Custom code 1 string: %s", customCode1.String())
+
+	// Test error messages
+	t.Logf("Exception 1 error: %s", exc1.Error())
+	t.Logf("Exception 2 error: %s", exc2.Error())
+	t.Logf("Exception 3 error: %s", exc3.Error())
+}
+
 func TestException_EdgeCases(t *testing.T) {
 	t.Run("Empty message", func(t *testing.T) {
 		exc := ex.New(ex.ExTypeIncorrectData, 400, "")

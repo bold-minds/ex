@@ -227,7 +227,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          token: \${{ steps.app-token.outputs.token }}
+          persist-credentials: false
           
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -240,16 +240,26 @@ jobs:
           ./scripts/validate.sh
           
       - name: Commit Badge Updates
+        env:
+          GITHUB_TOKEN: \${{ steps.app-token.outputs.token }}
         run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "Badge Automation Bot"
+          # Configure git with GitHub App identity and authentication
+          git config --global user.name "Badge Automation Bot"
+          git config --global user.email "action@github.com"
           
-          if [[ -n "\$(git status --porcelain)" ]]; then
-            git add .github/badges/
-            git commit -m "chore: update badges [skip ci]"
-            git push
-          else
+          # Configure git to use the GitHub App token for authentication
+          git config --global url."https://x-access-token:\${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
+          
+          # Add badge files to git
+          git add .github/badges/
+          
+          # Commit if there are changes
+          if git diff --staged --quiet; then
             echo "No badge changes to commit"
+          else
+            git commit -m "chore: update badges from CI run \${{ github.run_number }} [skip ci]"
+            # Push with GitHub App token authentication
+            git push origin HEAD:main
           fi
 EOF
     
@@ -292,10 +302,29 @@ For each new repository, run:
 - ✅ Private key generated (manual)
 - ⏳ App ready for installation on repositories
 
+## Critical Requirements for Badge Automation
+1. **GitHub App Bypass Configuration**:
+   - Add GitHub App to repository ruleset bypass list with \`bypass_mode: always\`
+   - Go to: https://github.com/REPO_OWNER/REPO_NAME/settings/rules
+   - Edit the main branch ruleset and add your GitHub App ID
+
+2. **Workflow Authentication Requirements**:
+   - MUST use \`persist-credentials: false\` in checkout step
+   - MUST configure git URL rewriting for GitHub App token authentication
+   - See workflow template for exact configuration
+
+3. **Repository Protection Considerations**:
+   - Both repository rulesets AND branch protection rules can block badge commits
+   - GitHub App must be in bypass list for BOTH protection types
+   - May need to temporarily disable protection during initial testing
+
 ## Troubleshooting
 - Ensure the app has \`Contents: Write\` permission
-- Verify the app is in the repository ruleset bypass list
+- Verify the app is in the repository ruleset bypass list with \`bypass_mode: always\`
 - Check that repository secrets are correctly configured
+- Confirm \`persist-credentials: false\` is set in checkout step
+- Verify git URL rewriting is configured for GitHub App token authentication
+- Test with repository protection temporarily disabled if needed
 EOF
     
     log_success "Setup instructions created: GITHUB_APP_SETUP.md"

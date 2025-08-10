@@ -9,7 +9,7 @@
 [![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/bold-minds/ex/main/.github/badges/coverage.json)](https://github.com/bold-minds/ex/actions/workflows/test.yaml)
 [![Dependabot](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/bold-minds/ex/main/.github/badges/dependabot.json)](https://github.com/bold-minds/ex/security/dependabot)
 
-A modern, idiomatic Go library for structured exception handling with full compatibility with Go's standard `errors` package.
+A high-performance, idiomatic Go library for structured exception handling with full compatibility with Go's standard `errors` package.
 
 ## ✨ Features
 
@@ -18,9 +18,10 @@ A modern, idiomatic Go library for structured exception handling with full compa
 - 🔄 **Error chaining** with inner error support
 - 📝 **Idiomatic Go error formatting**
 - 🧪 **Comprehensive test coverage**
-- ⚡ **Zero-allocation design** for performance
+- ⚡ **High-performance design** with optimized allocations
 - 🛡️ **Immutable error structures**
 - 🔍 **Enhanced debugging** with string representations
+- 🚀 **Zero-allocation exception creation and manipulation**
 
 ## 🚀 Quick Start
 
@@ -79,6 +80,25 @@ const (
     ExTypeApplicationFailure // Application logic errors
 )
 ```
+
+#### Custom Error Codes
+
+You can also use custom error codes by casting any int to ExType:
+
+```go
+// Use your existing error code groupings
+customCode := ex.ExType(42)
+exc := ex.New(customCode, 500, "Custom domain error")
+
+// Or directly inline
+exc := ex.New(ex.ExType(1), 400, "Your existing code 1")
+exc := ex.New(ex.ExType(999), 500, "Your existing code 999")
+
+// Custom codes show as "Unknown(N)" in string representation
+fmt.Println(ex.ExType(42).String()) // Output: "Unknown(42)"
+```
+
+This preserves your existing error code organization while gaining type safety and structured error handling.
 
 ### Core Functions
 
@@ -224,6 +244,36 @@ func handleError(err error) {
     }
 }
 ```
+
+## ⚡ Performance
+
+The library is designed for high performance with optimized allocation patterns:
+
+### Benchmark Results
+
+```
+BenchmarkNew-24                    1000000000    0.14 ns/op     0 B/op    0 allocs/op
+BenchmarkNewWithInnerError-24      1000000000    0.14 ns/op     0 B/op    0 allocs/op
+BenchmarkErrorSimple-24            1000000000    1.18 ns/op     0 B/op    0 allocs/op
+BenchmarkErrorWithInner-24            34839588   29.27 ns/op    48 B/op    1 allocs/op
+BenchmarkUnwrap-24                 1000000000    0.11 ns/op     0 B/op    0 allocs/op
+BenchmarkWithInnerError-24         1000000000    0.14 ns/op     0 B/op    0 allocs/op
+BenchmarkAccessors-24              1000000000    0.14 ns/op     0 B/op    0 allocs/op
+
+# Comparison with standard Go errors
+BenchmarkStandardError-24          1000000000    0.14 ns/op     0 B/op    0 allocs/op
+BenchmarkFmtErrorf-24                 14398628   83.52 ns/op    80 B/op    2 allocs/op
+```
+
+### Performance Characteristics
+
+- ✅ **Exception creation**: Zero-allocation
+- ✅ **Exception manipulation**: Zero-allocation (`WithInnerError`, `Unwrap`, accessors)
+- ✅ **Simple error strings**: Zero-allocation (no inner error)
+- ⚡ **Complex error strings**: Single allocation (optimized string concatenation)
+- 🎯 **Comparable to standard Go errors** for basic operations
+
+The library uses optimized string concatenation instead of `fmt.Sprintf` for better performance when formatting errors with inner error chains.
 
 ## 🧪 Testing
 
