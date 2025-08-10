@@ -1,6 +1,7 @@
 # Go Exception Library
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Go Reference](https://pkg.go.dev/badge/github.com/bold-minds/ex.svg)](https://pkg.go.dev/github.com/bold-minds/ex)
 [![Go Version](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/bold-minds/ex/main/.github/badges/go-version.json)](https://golang.org/doc/go1.24)
 [![Latest Release](https://img.shields.io/github/v/release/bold-minds/ex?logo=github&color=blueviolet)](https://github.com/bold-minds/ex/releases)
 [![Last Updated](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/bold-minds/ex/main/.github/badges/last-updated.json)](https://github.com/bold-minds/ex/commits)
