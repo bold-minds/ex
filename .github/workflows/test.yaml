@@ -151,9 +151,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          # Configure git with GitHub App identity
+          # Configure git with GitHub App identity and authentication
           git config --global user.name "Badge Automation Bot"
           git config --global user.email "action@github.com"
+          
+          # Configure git to use the GitHub App token for authentication
+          git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
           
           # Add badge files to git
           git add .github/badges/
@@ -163,6 +166,6 @@ jobs:
             echo "No badge changes to commit"
           else
             git commit -m "chore: update badges from CI run ${{ github.run_number }} [skip ci]"
-            # Push with GitHub App token as GITHUB_TOKEN (standard pattern for repository ruleset bypass)
+            # Push with GitHub App token authentication
             git push origin HEAD:main
           fi
