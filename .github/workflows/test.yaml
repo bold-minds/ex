@@ -34,8 +34,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          persist-credentials: true
+          persist-credentials: false
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
