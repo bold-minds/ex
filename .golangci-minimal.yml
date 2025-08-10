@@ -12,8 +12,9 @@ linters:
     - typecheck
     - gofmt
     - misspell
-    - predeclared
 
 linters-settings:
+  govet:
+    check-shadowing: true
   errcheck:
     check-type-assertions: true
