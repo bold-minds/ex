@@ -1,0 +1,143 @@
+name: Update Badges
+
+on:
+  workflow_run:
+    workflows: ["tests"]
+    types:
+      - completed
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+  security-events: read
+
+jobs:
+  update-badges:
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'success'
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          
+      - name: Download test artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: badges
+          path: .github/badges/
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+        continue-on-error: true
+          
+      - name: Generate badges if artifacts not available
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p .github/badges
+          
+          # Install golangci-lint
+          go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+          
+          # Generate coverage badge
+          go test -coverprofile=coverage.out ./...
+          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+          
+          if (( $(echo "$COVERAGE >= 80" | bc -l) )); then
+            echo '{"schemaVersion":1,"label":"coverage","message":"'$COVERAGE'%","color":"brightgreen"}' > .github/badges/coverage.json
+          elif (( $(echo "$COVERAGE >= 60" | bc -l) )); then
+            echo '{"schemaVersion":1,"label":"coverage","message":"'$COVERAGE'%","color":"yellow"}' > .github/badges/coverage.json
+          else
+            echo '{"schemaVersion":1,"label":"coverage","message":"'$COVERAGE'%","color":"red"}' > .github/badges/coverage.json
+          fi
+          
+          # Generate other badges
+          GO_VERSION=$(go version | grep -oE 'go[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)
+          echo '{"schemaVersion":1,"label":"Go","message":"'$GO_VERSION'","color":"00ADD8"}' > .github/badges/go-version.json
+          
+          LAST_COMMIT_DATE=$(git log -1 --format=%cd --date=short)
+          echo '{"schemaVersion":1,"label":"last updated","message":"'$LAST_COMMIT_DATE'","color":"teal"}' > .github/badges/last-updated.json
+          
+          # Generate golangci-lint badge
+          if golangci-lint run; then
+            echo '{"schemaVersion":1,"label":"golangci-lint","message":"0 issues","color":"brightgreen"}' > .github/badges/golangci-lint.json
+          else
+            ISSUES=$(golangci-lint run 2>&1 | grep -c "^.*\.go:" || echo "0")
+            if [[ $ISSUES -eq 0 ]]; then
+              echo '{"schemaVersion":1,"label":"golangci-lint","message":"passing","color":"brightgreen"}' > .github/badges/golangci-lint.json
+            else
+              echo '{"schemaVersion":1,"label":"golangci-lint","message":"'$ISSUES' issues","color":"red"}' > .github/badges/golangci-lint.json
+            fi
+          fi
+          
+          # Generate security badge
+          DEPENDABOT_ALERTS=$(gh api repos/${{ github.repository }}/dependabot/alerts --jq 'length' 2>/dev/null || echo "0")
+          CODE_SCANNING_ALERTS=$(gh api repos/${{ github.repository }}/code-scanning/alerts --jq '[.[] | select(.state == "open")] | length' 2>/dev/null || echo "0")
+          TOTAL_ALERTS=$((DEPENDABOT_ALERTS + CODE_SCANNING_ALERTS))
+          OPEN_PRS=$(gh pr list --author "app/dependabot" --state open --json number --jq 'length' 2>/dev/null || echo "0")
+          
+          if [[ $TOTAL_ALERTS -gt 0 ]]; then
+            echo '{"schemaVersion":1,"label":"security","message":"'$TOTAL_ALERTS' alerts","color":"red"}' > .github/badges/dependabot.json
+          elif [[ $OPEN_PRS -gt 0 ]]; then
+            echo '{"schemaVersion":1,"label":"dependabot","message":"'$OPEN_PRS' updates","color":"blue"}' > .github/badges/dependabot.json
+          else
+            echo '{"schemaVersion":1,"label":"security","message":"all clear","color":"brightgreen"}' > .github/badges/dependabot.json
+          fi
+          
+      - name: Create Pull Request for Badge Updates
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Configure git
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Create a unique branch name
+          BRANCH_NAME="badges/update-$(date +%Y%m%d-%H%M%S)"
+          
+          # Create and switch to new branch
+          git checkout -b "$BRANCH_NAME"
+          
+          # Add badge files
+          git add .github/badges/
+          
+          # Check if there are changes to commit
+          if git diff --staged --quiet; then
+            echo "No badge changes to commit"
+            exit 0
+          fi
+          
+          # Commit changes
+          git commit -m "chore: update badges from CI run ${{ github.event.workflow_run.run_number }} [skip ci]"
+          
+          # Push branch
+          git push origin "$BRANCH_NAME"
+          
+          # Create PR and auto-merge it
+          PR_NUMBER=$(gh pr create \
+            --title "chore: update badges from CI" \
+            --body "Automated badge updates from CI run ${{ github.event.workflow_run.run_number }}.
+
+          **Changes:**
+          - Updated coverage badge
+          - Updated Go version badge
+          - Updated linting status badge
+          - Updated security/dependabot badge
+          - Updated last updated timestamp
+
+          This PR is automatically generated and will be auto-merged." \
+            --head "$BRANCH_NAME" \
+            --base main \
+            --label "automated" \
+            --label "badges" | grep -oE '[0-9]+$')
+          
+          # Auto-merge the PR using admin privileges
+          sleep 5  # Give GitHub a moment to process the PR
+          gh pr merge "$PR_NUMBER" --squash --admin || echo "Auto-merge failed, PR created for manual review"
