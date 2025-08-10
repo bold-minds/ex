@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## v1.1.0 - Performance Optimizations (2025-01-10)
+
+⚡ **63% faster Error() method** with 67% fewer allocations  
+🧪 **Comprehensive benchmark tests** added  
+📚 **ExType flexibility documented** - users can cast any int: `ex.ExType(42)`  
+🤖 **Badge automation and repository standardization scripts**
+
 ## v1.0.0 - Initial Release (2025-01-07)
 
 🎉 **First stable release** of the `ex` Go exception library!
