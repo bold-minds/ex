@@ -151,9 +151,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          # Configure git with GitHub App identity
+          # Configure git with GitHub App identity and authentication
           git config --global user.name "Badge Automation Bot"
           git config --global user.email "action@github.com"
+          
+          # Configure git to use the GitHub App token for authentication
+          git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
           
           # Add badge files to git
           git add .github/badges/
