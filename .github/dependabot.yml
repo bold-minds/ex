@@ -9,8 +9,6 @@ updates:
       time: "09:00"
       timezone: "America/Los_Angeles"
     open-pull-requests-limit: 5
-    reviewers:
-      - "bold-minds"
     assignees:
       - "bold-minds"
     commit-message:
@@ -37,8 +35,6 @@ updates:
       time: "09:00"
       timezone: "America/Los_Angeles"
     open-pull-requests-limit: 3
-    reviewers:
-      - "bold-minds"
     assignees:
       - "bold-minds"
     commit-message:
