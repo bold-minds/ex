@@ -83,7 +83,8 @@ func (e Exception) WithInnerError(err error) Exception {
 
 func (e Exception) Error() string {
 	if e.innerError != nil && e.innerError.Error() != "" {
-		return fmt.Sprintf("%s: %s", e.message, e.innerError.Error())
+		// Use string concatenation instead of fmt.Sprintf for better performance
+		return e.message + ": " + e.innerError.Error()
 	}
 	return e.message
 }
