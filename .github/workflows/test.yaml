@@ -34,8 +34,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          persist-credentials: true
+          persist-credentials: false
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
@@ -149,11 +148,12 @@ jobs:
 
       - name: Commit badges to main branch
         if: github.ref == 'refs/heads/main' && matrix.os == 'ubuntu-latest' && matrix.go-version == '1.24'
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          # Configure git with GitHub App token
+          # Configure git with GitHub App identity
           git config --global user.name "Badge Automation Bot"
           git config --global user.email "action@github.com"
-          git remote set-url origin https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/${{ github.repository }}.git
           
           # Add badge files to git
           git add .github/badges/
@@ -163,6 +163,6 @@ jobs:
             echo "No badge changes to commit"
           else
             git commit -m "chore: update badges from CI run ${{ github.run_number }} [skip ci]"
-            # Push with GitHub App authentication (bypasses branch protection)
+            # Push with GitHub App token as GITHUB_TOKEN (standard pattern for repository ruleset bypass)
             git push origin HEAD:main
           fi
