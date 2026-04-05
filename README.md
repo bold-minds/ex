@@ -1,13 +1,9 @@
 # Go Exception Library
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Go Reference](https://pkg.go.dev/badge/github.com/bold-minds/ex.svg)](https://pkg.go.dev/github.com/bold-minds/ex)
-[![Go Version](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/bold-minds/ex/main/.github/badges/go-version.json)](https://golang.org/doc/go1.24)
-[![Latest Release](https://img.shields.io/github/v/release/bold-minds/ex?logo=github&color=blueviolet)](https://github.com/bold-minds/ex/releases)
-[![Last Updated](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/bold-minds/ex/main/.github/badges/last-updated.json)](https://github.com/bold-minds/ex/commits)
-[![golangci-lint](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/bold-minds/ex/main/.github/badges/golangci-lint.json)](https://github.com/bold-minds/ex/actions/workflows/test.yaml)
-[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/bold-minds/ex/main/.github/badges/coverage.json)](https://github.com/bold-minds/ex/actions/workflows/test.yaml)
-[![Dependabot](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/bold-minds/ex/main/.github/badges/dependabot.json)](https://github.com/bold-minds/ex/security/dependabot)
+[![Build](https://img.shields.io/github/actions/workflow/status/bold-minds/ex/test.yaml?branch=main&label=tests)](https://github.com/bold-minds/ex/actions/workflows/test.yaml)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/bold-minds/ex)](go.mod)
+[![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/clairevnext/9018482451ea46f94327597398d10798/raw/coverage.json)](https://github.com/bold-minds/ex/actions/workflows/test.yaml)
 
 A high-performance, idiomatic Go library for structured exception handling with full compatibility with Go's standard `errors` package.
 
