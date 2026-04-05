@@ -1,15 +1,15 @@
 name: "CodeQL Security Analysis"
 
-# Temporarily disabled - enable Code Security features in GitHub repo settings first
-# Go to Settings -> Security -> Code security and analysis -> Enable "Code scanning"
+# Requires "Code scanning" enabled under repo Settings ->
+# Security -> Code security and analysis.
 on:
-  # push:
-  #   branches: [ "main" ]
-  # pull_request:
-  #   branches: [ "main" ]
-  # schedule:
-  #   - cron: '0 6 * * 1'  # Weekly on Mondays at 6 AM UTC
-  workflow_dispatch:  # Manual trigger only for now
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  schedule:
+    - cron: '0 6 * * 1'  # Weekly on Mondays at 06:00 UTC
+  workflow_dispatch:
 
 jobs:
   analyze:

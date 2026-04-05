@@ -1,10 +1,15 @@
 package ex
 
 import (
-	"fmt"
+	"strconv"
 )
 
-// ExType is the type of exception being returned
+// ExType is the type of exception being returned.
+//
+// The zero value (ExType(0)) is reserved and considered invalid: the
+// predefined constants begin at iota + 1. Custom codes created via
+// ExType(n) are supported for n > 0, and will be rendered by String()
+// as "Unknown(n)".
 type ExType int
 
 const (
@@ -21,9 +26,12 @@ const (
 	ExTypeApplicationFailure
 )
 
-// String returns a string representation of the ExType for debugging and logging
+// String returns a string representation of the ExType for debugging and logging.
+// The zero value renders as "Invalid(0)". Custom codes render as "Unknown(N)".
 func (et ExType) String() string {
 	switch et {
+	case 0:
+		return "Invalid(0)"
 	case ExTypeIncorrectData:
 		return "IncorrectData"
 	case ExTypeLoginRequired:
@@ -33,19 +41,21 @@ func (et ExType) String() string {
 	case ExTypeApplicationFailure:
 		return "ApplicationFailure"
 	default:
-		return fmt.Sprintf("Unknown(%d)", int(et))
+		return "Unknown(" + strconv.Itoa(int(et)) + ")"
 	}
 }
 
-// Err represents the error to be logged
-type Err interface {
-	ID() int
-	Message() string
-	InnerError() error
-	WithInnerError(err error) Exception
-}
-
-// Exception represents an error within the application
+// Exception represents an error within the application.
+//
+// Exception is intentionally an immutable value type. All mutation methods
+// (e.g. WithInnerError) return a new Exception, leaving the receiver
+// unchanged. This makes Exception safe to share across goroutines.
+//
+// Although Exception is a struct, do not rely on the built-in == operator
+// to compare Exceptions: the innerError field holds an arbitrary error
+// whose dynamic type may be non-comparable (e.g. a struct containing a
+// slice, map, or func), which would panic at runtime. Use the provided
+// Is method, or errors.Is, instead.
 type Exception struct {
 	code       ExType
 	id         int
@@ -81,23 +91,72 @@ func (e Exception) WithInnerError(err error) Exception {
 	return e
 }
 
+// Error implements the error interface.
+//
+// Formatting rules:
+//   - If both message and the inner error's Error() string are non-empty,
+//     the result is "message: innerError".
+//   - If the message is empty but an inner error is present, the inner
+//     error's Error() string is returned.
+//   - Otherwise the message alone is returned.
 func (e Exception) Error() string {
-	if e.innerError != nil && e.innerError.Error() != "" {
-		// Use string concatenation instead of fmt.Sprintf for better performance
-		return e.message + ": " + e.innerError.Error()
+	innerMsg := ""
+	if e.innerError != nil {
+		innerMsg = e.innerError.Error()
 	}
-	return e.message
+
+	switch {
+	case e.message == "" && innerMsg != "":
+		return innerMsg
+	case e.message == "" && e.innerError != nil:
+		// Inner error exists but its message is empty; fall through to
+		// returning the (empty) message rather than a leading colon.
+		return ""
+	case innerMsg != "":
+		return e.message + ": " + innerMsg
+	default:
+		return e.message
+	}
 }
 
-// Unwrap returns the inner error for errors.Is and errors.As compatibility
+// Unwrap returns the inner error for errors.Is and errors.As compatibility.
 func (e Exception) Unwrap() error {
 	return e.innerError
 }
 
+// Is reports whether this Exception matches target for use with errors.Is.
+//
+// Matching semantics are intentional (not the Go default == fallback,
+// which would both panic on non-comparable inner errors and incorrectly
+// match unrelated Exceptions that happen to share the same code/id/message):
+//
+//   - If target is an Exception, Is returns true only when both the Code
+//     and ID match. This treats (Code, ID) as the exception's identity.
+//   - If target is any other error, Is returns false here and lets
+//     errors.Is continue walking the wrapped chain via Unwrap.
+func (e Exception) Is(target error) bool {
+	t, ok := target.(Exception)
+	if !ok {
+		return false
+	}
+	return e.code == t.code && e.id == t.id
+}
+
 // New creates an exception with the specified code, ID, and message.
-// The code should be one of the predefined ExType constants.
-// The ID is typically an HTTP status code or application-specific error code.
-// The message should be a human-readable description of the error.
+//
+// The code should be a predefined ExType constant or a custom ExType(n)
+// with n > 0. The zero value ExType(0) is reserved; passing it produces
+// an Exception whose Code() renders as "Invalid(0)" via String().
+//
+// The ID is typically an HTTP status code or application-specific error
+// code. The message should be a human-readable description of the error.
 func New(code ExType, id int, message string) Exception {
 	return Exception{code: code, id: id, message: message, innerError: nil}
 }
+
+// Compile-time checks that Exception satisfies the standard error interfaces.
+var (
+	_ error                       = Exception{}
+	_ interface{ Unwrap() error } = Exception{}
+	_ interface{ Is(error) bool } = Exception{}
+)

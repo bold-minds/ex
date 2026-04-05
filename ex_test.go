@@ -3,6 +3,7 @@ package ex_test
 import (
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/bold-minds/ex"
@@ -70,7 +71,7 @@ func Test_NewExWithInnerEx(t *testing.T) {
 		}
 
 		if e.InnerError() != testCase.innerErr {
-			t.Errorf("Inner error not correct: expected '%+v'; got '%+v'", testCase.errMsg, e.Message())
+			t.Errorf("Inner error not correct: expected '%+v'; got '%+v'", testCase.innerErr, e.InnerError())
 		}
 
 		// Test error message format
@@ -157,25 +158,35 @@ func Test_ErrorsAs(t *testing.T) {
 }
 
 func Test_ErrorsIsWithExceptionTypes(t *testing.T) {
-	// Test errors.Is with Exception instances
+	// Exception identity for errors.Is is (Code, ID). This is intentional —
+	// the default == fallback would both panic on non-comparable inner
+	// errors and incorrectly match unrelated errors that happen to share
+	// message text.
+
 	originalExc := ex.New(ex.ExTypeIncorrectData, 400, "Bad request")
 	wrappedExc := ex.New(ex.ExTypeApplicationFailure, 500, "Server error").WithInnerError(originalExc)
 
-	// Should find the original exception
+	// Same (Code, ID) as the wrapped exception: should match regardless of
+	// message text differences.
 	if !errors.Is(wrappedExc, originalExc) {
-		t.Errorf("errors.Is should find wrapped Exception")
+		t.Errorf("errors.Is should find wrapped Exception by (Code, ID)")
 	}
 
-	// Should find a different exception with same values (Go's default behavior for comparable types)
-	differentExc := ex.New(ex.ExTypeIncorrectData, 400, "Bad request")
-	if !errors.Is(wrappedExc, differentExc) {
-		t.Errorf("errors.Is should find Exception with same values")
+	sameIdentityDifferentMessage := ex.New(ex.ExTypeIncorrectData, 400, "Some other wording")
+	if !errors.Is(wrappedExc, sameIdentityDifferentMessage) {
+		t.Errorf("errors.Is should match on (Code, ID) regardless of message")
 	}
 
-	// Should not find exception with different values
-	differentValuesExc := ex.New(ex.ExTypeIncorrectData, 404, "Not found")
-	if errors.Is(wrappedExc, differentValuesExc) {
-		t.Errorf("errors.Is should not find Exception with different values")
+	// Different ID → should not match, even with same Code.
+	differentID := ex.New(ex.ExTypeIncorrectData, 404, "Not found")
+	if errors.Is(wrappedExc, differentID) {
+		t.Errorf("errors.Is should not match when ID differs")
+	}
+
+	// Different Code → should not match, even with same ID.
+	differentCode := ex.New(ex.ExTypeLoginRequired, 400, "Bad request")
+	if errors.Is(wrappedExc, differentCode) {
+		t.Errorf("errors.Is should not match when Code differs")
 	}
 }
 
@@ -262,16 +273,126 @@ func TestExTypeCasting(t *testing.T) {
 		t.Errorf("Expected code %d, got %d", customCode1, exc3.Code())
 	}
 
-	// Test String() method with custom codes
-	t.Logf("Custom code 42 string: %s", customCode42.String())
-	t.Logf("Custom code 999 string: %s", customCode999.String())
-	t.Logf("Custom code 1 string: %s", customCode1.String())
+	// String() renders custom codes as "Unknown(N)"; the predefined
+	// constant at iota+1 keeps its named rendering.
+	assert.Equal(t, "Unknown(42)", customCode42.String())
+	assert.Equal(t, "Unknown(999)", customCode999.String())
+	assert.Equal(t, "IncorrectData", customCode1.String())
 
-	// Test error messages
-	t.Logf("Exception 1 error: %s", exc1.Error())
-	t.Logf("Exception 2 error: %s", exc2.Error())
-	t.Logf("Exception 3 error: %s", exc3.Error())
+	// Error() strings for custom-coded exceptions still surface the message.
+	assert.Equal(t, "Custom error code 42", exc1.Error())
+	assert.Equal(t, "Custom error code 999", exc2.Error())
+	assert.Equal(t, "Custom error code 1", exc3.Error())
 }
+
+// emptyError is a test helper whose Error() returns "".
+type emptyError struct{}
+
+func (emptyError) Error() string { return "" }
+
+func TestException_ErrorFormatting_EdgeCases(t *testing.T) {
+	t.Run("empty message with non-nil inner error uses inner", func(t *testing.T) {
+		inner := errors.New("root cause")
+		exc := ex.New(ex.ExTypeApplicationFailure, 500, "").WithInnerError(inner)
+		// Was: ": root cause" (leading colon bug). Now: "root cause".
+		assert.Equal(t, "root cause", exc.Error())
+	})
+
+	t.Run("empty message with inner whose Error is empty returns empty", func(t *testing.T) {
+		exc := ex.New(ex.ExTypeApplicationFailure, 500, "").WithInnerError(emptyError{})
+		assert.Equal(t, "", exc.Error())
+	})
+
+	t.Run("non-empty message with inner whose Error is empty returns message only", func(t *testing.T) {
+		// Previously the non-nil inner error was silently dropped; the
+		// observable string is still message-only, but the inner error
+		// remains retrievable via Unwrap for programmatic inspection.
+		exc := ex.New(ex.ExTypeApplicationFailure, 500, "outer").WithInnerError(emptyError{})
+		assert.Equal(t, "outer", exc.Error())
+		assert.NotNil(t, exc.Unwrap())
+	})
+
+	t.Run("WithInnerError transition from non-nil back to nil", func(t *testing.T) {
+		exc := ex.New(ex.ExTypeIncorrectData, 400, "msg")
+		withInner := exc.WithInnerError(errors.New("boom"))
+		cleared := withInner.WithInnerError(nil)
+		assert.Nil(t, cleared.InnerError())
+		assert.Equal(t, "msg", cleared.Error())
+		// Original chain must remain intact (immutability).
+		assert.NotNil(t, withInner.InnerError())
+	})
+}
+
+func TestException_LongChainTraversal(t *testing.T) {
+	// Build a 10-deep chain and assert full traversal via errors.Is / Unwrap.
+	root := errors.New("root cause")
+	var current error = root
+	for i := 0; i < 10; i++ {
+		current = ex.New(ex.ExTypeApplicationFailure, 500+i, "level").WithInnerError(current)
+	}
+
+	if !errors.Is(current, root) {
+		t.Fatalf("errors.Is should find root cause across deep chain")
+	}
+
+	// Walk the chain manually and count links.
+	depth := 0
+	for e := current; e != nil; e = errors.Unwrap(e) {
+		depth++
+	}
+	// 10 Exceptions + 1 root = 11 links.
+	assert.Equal(t, 11, depth)
+}
+
+func TestException_ConcurrentUse(t *testing.T) {
+	t.Parallel()
+	// Exception is an immutable value type; concurrent reads and
+	// concurrent WithInnerError calls must not race or corrupt state.
+	// This test documents that contract and is gated by -race in CI.
+	exc := ex.New(ex.ExTypeApplicationFailure, 500, "shared").
+		WithInnerError(errors.New("inner"))
+
+	var wg sync.WaitGroup
+	const workers = 32
+	wg.Add(workers)
+	for i := 0; i < workers; i++ {
+		go func() {
+			defer wg.Done()
+			_ = exc.Error()
+			_ = exc.Code()
+			_ = exc.ID()
+			_ = exc.Message()
+			_ = exc.Unwrap()
+			// Derived exceptions must not mutate the shared one.
+			other := exc.WithInnerError(errors.New("local"))
+			_ = other.Error()
+		}()
+	}
+	wg.Wait()
+
+	// Original exception still reads back exactly.
+	assert.Equal(t, "shared: inner", exc.Error())
+}
+
+func TestErrorsAs_WrongTargetType(t *testing.T) {
+	// errors.As requires the target to be a non-nil pointer to a type
+	// that implements error (or is an interface). Passing a pointer to
+	// an error-implementing type that does not appear anywhere in the
+	// chain must return false rather than accidentally matching.
+	exc := ex.New(ex.ExTypeIncorrectData, 400, "bad").
+		WithInnerError(errors.New("inner"))
+
+	var stdTarget *customNonChainError
+	assert.False(t, errors.As(exc, &stdTarget),
+		"errors.As should not match a type absent from the chain")
+	assert.Nil(t, stdTarget, "target should remain nil when As returns false")
+}
+
+// customNonChainError is a type never inserted into any Exception chain,
+// used to verify the errors.As failure path.
+type customNonChainError struct{}
+
+func (*customNonChainError) Error() string { return "custom" }
 
 func TestException_EdgeCases(t *testing.T) {
 	t.Run("Empty message", func(t *testing.T) {

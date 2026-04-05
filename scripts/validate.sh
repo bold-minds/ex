@@ -46,7 +46,7 @@ print_step() {
 print_success() {
     local step_name="$1"
     echo -e "${GREEN}✅ $step_name: PASSED${NC}"
-    ((PASSED_STEPS++))
+    PASSED_STEPS=$((PASSED_STEPS + 1))
 }
 
 print_failure() {
@@ -54,7 +54,7 @@ print_failure() {
     local error_msg="$2"
     echo -e "${RED}❌ $step_name: FAILED${NC}"
     echo -e "${RED}   Error: $error_msg${NC}"
-    ((FAILED_STEPS++))
+    FAILED_STEPS=$((FAILED_STEPS + 1))
 }
 
 print_skipped() {
@@ -62,13 +62,13 @@ print_skipped() {
     local reason="$2"
     echo -e "${YELLOW}⏭️  $step_name: SKIPPED${NC}"
     echo -e "${YELLOW}   Reason: $reason${NC}"
-    ((SKIPPED_STEPS++))
+    SKIPPED_STEPS=$((SKIPPED_STEPS + 1))
 }
 
 print_warning() {
     local message="$1"
     echo -e "${YELLOW}⚠️  Warning: $message${NC}"
-    ((WARNING_COUNT++))
+    WARNING_COUNT=$((WARNING_COUNT + 1))
 }
 
 print_info() {
@@ -83,7 +83,7 @@ run_step() {
     local icon="$3"
     local skip_reason="${4:-}"
     
-    ((TOTAL_STEPS++))
+    TOTAL_STEPS=$((TOTAL_STEPS + 1))
     
     # Check if step should be skipped
     if [[ -n "$skip_reason" ]]; then
@@ -110,8 +110,11 @@ check_environment() {
         return 1
     fi
     
-    local go_version=$(go version | grep -oP 'go\K[0-9]+\.[0-9]+')
-    local required_version="1.19"
+    # grep -oP is GNU-only; use portable sed -E so macOS BSD grep works too.
+    # Declare and assign on separate lines: `local x=$(cmd)` masks $? under set -e.
+    local go_version
+    go_version=$(go version | sed -E 's/.*go([0-9]+\.[0-9]+)(\.[0-9]+)?.*/\1/')
+    local required_version="1.24"
     
     if [[ $(echo -e "$required_version\n$go_version" | sort -V | head -n1) != "$required_version" ]]; then
         echo "Go version $go_version is below required $required_version"
@@ -174,10 +177,14 @@ run_linting() {
 
 # 🏗️ Build validation
 validate_build() {
-    # Clean build
-    print_info "Cleaning build cache..."
-    go clean -cache
-    
+    # Only nuke the build cache in CI — on local dev this would wipe the
+    # user's global Go build cache across every project, costing minutes
+    # of rebuild time with no correctness benefit.
+    if [[ "$MODE" == "ci" ]]; then
+        print_info "Cleaning build cache (CI mode)..."
+        go clean -cache
+    fi
+
     # Build all packages
     if ! go build ./...; then
         return 1
@@ -265,19 +272,13 @@ validate_coverage() {
     
     print_info "Analyzing test coverage..."
     
-    # Get main package coverage (from test output, not total which includes examples)
+    # Read total coverage directly from the profile that run_unit_tests
+    # already wrote with `./...`. This works for single- and multi-package
+    # modules alike; the previous `go test ./.` hack only scanned the root
+    # package and would silently under-report once a subpackage existed.
     local coverage_percent
-    # Extract main package coverage from the test output (e.g., "coverage: 84.7% of statements")
-    if [[ -f "coverage.out" ]]; then
-        # Try to get main package coverage from go test output or coverage file
-        coverage_percent=$(go test -coverprofile=temp_coverage.out ./. 2>/dev/null | grep "coverage:" | grep -oE '[0-9]+\.[0-9]+%' | sed 's/%//' | head -1)
-        rm -f temp_coverage.out 2>/dev/null
-        
-        # If that fails, fall back to total coverage
-        if [[ -z "$coverage_percent" ]]; then
-            coverage_percent=$(go tool cover -func=coverage.out | grep total | grep -oE '[0-9]+\.[0-9]+')
-        fi
-    else
+    coverage_percent=$(go tool cover -func=coverage.out | awk '/^total:/ {gsub("%",""); print $3}')
+    if [[ -z "$coverage_percent" ]]; then
         coverage_percent="0.0"
     fi
     
@@ -364,31 +365,27 @@ generate_badges() {
     
     # Generate golangci-lint badge
     if command -v golangci-lint >/dev/null 2>&1; then
-        print_info "Running golangci-lint with JSON output for badge generation..."
-        
-        # Run golangci-lint with JSON output (allow failure to capture issues)
-        local lint_json_output
-        lint_json_output=$(golangci-lint run --out-format json ./... 2>/dev/null || echo '{"Issues":null}')
-        
-        # Save raw output for debugging
-        echo "$lint_json_output" > .github/badges/lint-results.json
-        
-        # Count issues (handle both null and empty array cases)
-        local issues_count
-        if command -v jq >/dev/null 2>&1; then
-            issues_count=$(echo "$lint_json_output" | jq '.Issues | length // 0' 2>/dev/null || echo "0")
-        else
-            # Fallback without jq - count occurrences of issue objects
-            if [[ "$lint_json_output" == *'"Issues":null'* ]] || [[ "$lint_json_output" == *'"Issues":[]'* ]]; then
-                issues_count=0
-            else
-                # Simple count of issue entries (rough approximation)
-                issues_count=$(echo "$lint_json_output" | grep -o '"Pos":' | wc -l || echo "0")
-            fi
+        print_info "Running golangci-lint for badge generation..."
+
+        # golangci-lint v2 replaced `--out-format json` with
+        # `--output.json.path=stdout`. Under v1 the old flag was silently
+        # swallowed by the `|| echo '{"Issues":null}'` fallback, which made
+        # this badge always report "0 issues" regardless of real lint state.
+        # We now rely on exit code + a simple issue count on stderr, which
+        # is schema-stable across both v1 and v2.
+        local lint_stdout
+        local lint_rc=0
+        lint_stdout=$(golangci-lint run ./... 2>&1) || lint_rc=$?
+
+        echo "$lint_stdout" > .github/badges/lint-results.txt
+
+        local issues_count=0
+        if [[ $lint_rc -ne 0 ]]; then
+            # Each finding line starts with "file.go:line:col:".
+            issues_count=$(echo "$lint_stdout" | grep -cE '^[^:]+\.go:[0-9]+:[0-9]+:' || true)
         fi
-        
-        # Generate golangci-lint badge JSON
-        if [[ "$issues_count" -eq 0 ]]; then
+
+        if [[ "$issues_count" -eq 0 && $lint_rc -eq 0 ]]; then
             echo '{"schemaVersion":1,"label":"golangci-lint","message":"0 issues","color":"brightgreen"}' > .github/badges/golangci-lint.json
             print_info "✅ golangci-lint badge: 0 issues (green)"
         else
@@ -403,14 +400,13 @@ generate_badges() {
     
     # Generate coverage badge (if coverage file exists)
     if [[ -f "coverage.out" ]]; then
+        # Read total coverage from the profile written by run_unit_tests.
+        # Use `go tool cover` as the primary source (not `go test ./.`, which
+        # only scans the root package).
         local coverage_percent
-        # Use the same logic as coverage validation to get main package coverage
-        coverage_percent=$(go test -coverprofile=temp_coverage.out ./. 2>/dev/null | grep "coverage:" | grep -oE '[0-9]+\.[0-9]+%' | sed 's/%//' | head -1)
-        rm -f temp_coverage.out 2>/dev/null
-        
-        # If that fails, fall back to total coverage
+        coverage_percent=$(go tool cover -func=coverage.out 2>/dev/null | awk '/^total:/ {gsub("%",""); print $3}')
         if [[ -z "$coverage_percent" ]]; then
-            coverage_percent=$(go tool cover -func=coverage.out 2>/dev/null | grep total | awk '{print $3}' | sed 's/%//' || echo "0")
+            coverage_percent="0"
         fi
         
         # Determine color based on coverage
@@ -438,10 +434,22 @@ generate_badges() {
     LAST_COMMIT_DATE=$(git log -1 --format=%cd --date=short)
     echo '{"schemaVersion":1,"label":"last updated","message":"'$LAST_COMMIT_DATE'","color":"teal"}' > .github/badges/last-updated.json
     
-    # Comprehensive security badge (Dependabot + Code Scanning)
+    # Comprehensive security badge (Dependabot + Code Scanning).
+    # Resolve the current repo from git instead of hardcoding a slug —
+    # the old `bold-minds/id` path was a copy-paste that silently returned 0.
     if command -v gh >/dev/null 2>&1; then
-        DEPENDABOT_ALERTS=$(gh api repos/bold-minds/id/dependabot/alerts --jq 'length' 2>/dev/null || echo "0")
-        CODE_SCANNING_ALERTS=$(gh api repos/bold-minds/id/code-scanning/alerts --jq '[.[] | select(.state == "open")] | length' 2>/dev/null || echo "0")
+        local repo_slug=""
+        repo_slug=$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null || true)
+        if [[ -z "$repo_slug" ]]; then
+            repo_slug=$(git config --get remote.origin.url 2>/dev/null | sed -E 's#(git@|https://)github\.com[:/](.*)\.git#\2#' || true)
+        fi
+        if [[ -z "$repo_slug" ]]; then
+            print_warning "Could not resolve current repo slug; security badge will be skipped"
+            echo '{"schemaVersion":1,"label":"security","message":"unknown","color":"lightgrey"}' > .github/badges/dependabot.json
+            return 0
+        fi
+        DEPENDABOT_ALERTS=$(gh api "repos/$repo_slug/dependabot/alerts" --jq 'length' 2>/dev/null || echo "0")
+        CODE_SCANNING_ALERTS=$(gh api "repos/$repo_slug/code-scanning/alerts" --jq '[.[] | select(.state == "open")] | length' 2>/dev/null || echo "0")
         TOTAL_ALERTS=$((DEPENDABOT_ALERTS + CODE_SCANNING_ALERTS))
         OPEN_PRS=$(gh pr list --author "app/dependabot" --state open --json number --jq 'length' 2>/dev/null || echo "0")
         

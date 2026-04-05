@@ -6,30 +6,31 @@ on:
   pull_request:
     branches: [ main ]
 
+# Default to read-only for the whole workflow. The test job is read-only;
+# only the badge-commit job below elevates contents to write.
 permissions:
-  contents: write
+  contents: read
   pull-requests: read
   security-events: read
   actions: read
 
 jobs:
   test:
+    permissions:
+      contents: read
+      pull-requests: read
+      security-events: read
+      actions: read
     strategy:
       matrix:
         include:
-          # Primary testing: Latest Go on all platforms (time/concurrency testing)
+          # Primary testing: Go 1.24 (matches go.mod floor) on all platforms.
           - go-version: '1.24'
             os: ubuntu-latest
           - go-version: '1.24'
             os: windows-latest
           - go-version: '1.24'
             os: macos-latest
-          # Compatibility testing: Min supported Go on Linux only
-          - go-version: '1.22'
-            os: ubuntu-latest
-          # Intermediate compatibility: Go 1.23 on Linux only
-          - go-version: '1.23'
-            os: ubuntu-latest
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -67,17 +68,19 @@ jobs:
         run: |
           mkdir -p .github/badges
           
-          # Install golangci-lint v2 directly (due to third-party action restrictions)
-          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
-          
-          # Generate coverage badge from existing coverage.out
+          # Install golangci-lint v2 at a pinned version. Dependabot (or a
+          # follow-up PR) should bump this; @latest is forbidden because it
+          # breaks CI reproducibility and can introduce lint churn on
+          # unrelated PRs.
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.1.6
+
+          # Generate coverage badge from existing coverage.out. Use
+          # `go tool cover` against the profile we already wrote in the
+          # test step (covers the whole module, ./...), instead of
+          # re-running `go test ./.` which only covers the root package
+          # and would silently under-report if a subpackage is added.
           if [[ -f "coverage.out" ]]; then
-            COVERAGE=$(go test -coverprofile=temp_coverage.out ./. 2>/dev/null | grep "coverage:" | grep -oE '[0-9]+\.[0-9]+%' | sed 's/%//' | head -1)
-            rm -f temp_coverage.out 2>/dev/null
-            
-            if [[ -z "$COVERAGE" ]]; then
-              COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
-            fi
+            COVERAGE=$(go tool cover -func=coverage.out | awk '/^total:/ {gsub("%",""); print $3}')
             
             if (( $(echo "$COVERAGE >= 80" | bc -l) )); then
               echo '{"schemaVersion":1,"label":"coverage","message":"'$COVERAGE'%","color":"brightgreen"}' > .github/badges/coverage.json
@@ -109,15 +112,19 @@ jobs:
             fi
           fi
           
-          # Generate comprehensive security badge (Dependabot + Code Scanning)
-          echo "🔍 Checking security alerts..."
-          DEPENDABOT_ALERTS=$(gh api repos/bold-minds/id/dependabot/alerts --jq 'length' 2>/dev/null || echo "0")
+          # Generate comprehensive security badge (Dependabot + Code Scanning).
+          # NOTE: this must query the *current* repo, not a hardcoded slug —
+          # previous copies hit bold-minds/id and silently returned 0 via the
+          # `|| echo "0"` fallback, making the badge a lie regardless of
+          # actual alert state. Use ${{ github.repository }}.
+          REPO_SLUG="${{ github.repository }}"
+          echo "🔍 Checking security alerts for $REPO_SLUG..."
+          DEPENDABOT_ALERTS=$(gh api "repos/$REPO_SLUG/dependabot/alerts" --jq 'length' 2>/dev/null || echo "0")
           echo "Dependabot alerts: $DEPENDABOT_ALERTS"
-          
-          # Debug code scanning API access
+
           echo "🔍 Checking code scanning alerts..."
-          gh api repos/bold-minds/id/code-scanning/alerts 2>&1 | head -5 || echo "Code scanning API failed"
-          CODE_SCANNING_ALERTS=$(gh api repos/bold-minds/id/code-scanning/alerts --jq '[.[] | select(.state == "open")] | length' 2>/dev/null || echo "0")
+          gh api "repos/$REPO_SLUG/code-scanning/alerts" 2>&1 | head -5 || echo "Code scanning API failed"
+          CODE_SCANNING_ALERTS=$(gh api "repos/$REPO_SLUG/code-scanning/alerts" --jq '[.[] | select(.state == "open")] | length' 2>/dev/null || echo "0")
           echo "Code scanning alerts: $CODE_SCANNING_ALERTS"
           
           TOTAL_ALERTS=$((DEPENDABOT_ALERTS + CODE_SCANNING_ALERTS))

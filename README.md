@@ -14,14 +14,13 @@ A high-performance, idiomatic Go library for structured exception handling with 
 ## ✨ Features
 
 - 🔗 **Full `errors.Is` and `errors.As` compatibility**
-- 🎯 **Type-safe error codes** with predefined categories
+- 🎯 **Structured error codes** with predefined categories and room for custom codes
 - 🔄 **Error chaining** with inner error support
 - 📝 **Idiomatic Go error formatting**
 - 🧪 **Comprehensive test coverage**
-- ⚡ **High-performance design** with optimized allocations
-- 🛡️ **Immutable error structures**
+- 🛡️ **Immutable error structures** (safe to share across goroutines)
 - 🔍 **Enhanced debugging** with string representations
-- 🚀 **Zero-allocation exception creation and manipulation**
+- ⚡ **Lean hot path**: simple string concatenation, no `fmt.Sprintf`, no reflection
 
 ## 🚀 Quick Start
 
@@ -139,7 +138,13 @@ withInner := original.WithInnerError(dbError)
 ```
 
 #### `Error() string`
-Implements the `error` interface. Returns formatted error message with inner error if present.
+Implements the `error` interface. Formatting rules:
+
+- If both the message and the inner error's `Error()` string are non-empty, the result is `"message: innerError"`.
+- If the message is empty but a non-nil inner error is present, the inner error's `Error()` string is returned on its own (no leading colon).
+- Otherwise the message alone is returned.
+
+The inner error remains retrievable via `Unwrap` and `InnerError` even when it contributes nothing to the `Error()` string (e.g. its `Error()` returned `""`).
 
 #### `Unwrap() error`
 Implements error unwrapping for `errors.Is` and `errors.As` compatibility.
@@ -247,33 +252,52 @@ func handleError(err error) {
 
 ## ⚡ Performance
 
-The library is designed for high performance with optimized allocation patterns:
+The library is designed to be lean on the hot path: no `fmt.Sprintf`, no
+reflection, and a struct small enough to stay on the stack when the compiler
+can prove it does not escape.
 
 ### Benchmark Results
 
-```
-BenchmarkNew-24                    1000000000    0.14 ns/op     0 B/op    0 allocs/op
-BenchmarkNewWithInnerError-24      1000000000    0.14 ns/op     0 B/op    0 allocs/op
-BenchmarkErrorSimple-24            1000000000    1.18 ns/op     0 B/op    0 allocs/op
-BenchmarkErrorWithInner-24            34839588   29.27 ns/op    48 B/op    1 allocs/op
-BenchmarkUnwrap-24                 1000000000    0.11 ns/op     0 B/op    0 allocs/op
-BenchmarkWithInnerError-24         1000000000    0.14 ns/op     0 B/op    0 allocs/op
-BenchmarkAccessors-24              1000000000    0.14 ns/op     0 B/op    0 allocs/op
+Representative numbers from `go test -bench=. -benchmem ./...`:
 
-# Comparison with standard Go errors
-BenchmarkStandardError-24          1000000000    0.14 ns/op     0 B/op    0 allocs/op
-BenchmarkFmtErrorf-24                 14398628   83.52 ns/op    80 B/op    2 allocs/op
+```
+BenchmarkNew-24                    ~0.14 ns/op     0 B/op    0 allocs/op
+BenchmarkNewWithInnerError-24      ~0.14 ns/op     0 B/op    0 allocs/op
+BenchmarkErrorSimple-24            ~1.18 ns/op     0 B/op    0 allocs/op
+BenchmarkErrorWithInner-24        ~29    ns/op    48 B/op    1 allocs/op
+BenchmarkUnwrap-24                 ~0.11 ns/op     0 B/op    0 allocs/op
+BenchmarkWithInnerError-24         ~0.14 ns/op     0 B/op    0 allocs/op
+BenchmarkAccessors-24              ~0.14 ns/op     0 B/op    0 allocs/op
 ```
 
-### Performance Characteristics
+### ⚠️ A note on "zero allocation" claims
 
-- ✅ **Exception creation**: Zero-allocation
-- ✅ **Exception manipulation**: Zero-allocation (`WithInnerError`, `Unwrap`, accessors)
-- ✅ **Simple error strings**: Zero-allocation (no inner error)
-- ⚡ **Complex error strings**: Single allocation (optimized string concatenation)
-- 🎯 **Comparable to standard Go errors** for basic operations
+The zero-alloc numbers above come from benchmarks that assign the result to
+`_`, keeping the `Exception` value on the stack. **In realistic use, returning
+an `Exception` through an `error` interface forces a heap allocation** because
+the concrete struct must be boxed into the interface header. For example:
 
-The library uses optimized string concatenation instead of `fmt.Sprintf` for better performance when formatting errors with inner error chains.
+```go
+func DoThing() error {
+    return ex.New(ex.ExTypeIncorrectData, 400, "bad") // allocates at the return boundary
+}
+```
+
+You can see this yourself with `go test -gcflags='-m' -bench=BenchmarkNew`: the
+moment an `Exception` is assigned to a variable of type `error`, the escape
+analysis output will show the allocation. This is a property of Go interfaces,
+not of this library; the same cost applies to `errors.New`, `fmt.Errorf`, and
+every other error type.
+
+What this library **does** guarantee:
+
+- ✅ `Unwrap` and accessors (`Code`, `ID`, `Message`, `InnerError`) do not allocate.
+- ✅ `Error()` without an inner error does not allocate.
+- ⚡ `Error()` with an inner error performs a single string concatenation (one allocation), not the two allocations of `fmt.Errorf("%s: %w", …)`.
+- ✅ The struct itself is immutable and safe to share across goroutines.
+
+If a call site never converts the `Exception` to `error`, the creation stays
+on the stack and costs nothing extra.
 
 ## 🧪 Testing
 
@@ -311,7 +335,7 @@ go test -race ./...
 
 ### Prerequisites
 
-- Go 1.19 or later
+- Go 1.24 or later (matches `go.mod`)
 - Git
 
 ### Building

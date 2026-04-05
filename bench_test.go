@@ -143,7 +143,7 @@ func BenchmarkErrorChainTraversal(b *testing.B) {
 	exc3 := ex.New(ex.ExTypeApplicationFailure, 500, "Level 3").WithInnerError(exc2)
 	exc4 := ex.New(ex.ExTypeApplicationFailure, 500, "Level 4").WithInnerError(exc3)
 	finalExc := ex.New(ex.ExTypeApplicationFailure, 500, "Level 5").WithInnerError(exc4)
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
