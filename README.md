@@ -3,7 +3,7 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/bold-minds/ex.svg)](https://pkg.go.dev/github.com/bold-minds/ex)
 [![Build](https://img.shields.io/github/actions/workflow/status/bold-minds/ex/test.yaml?branch=main&label=tests)](https://github.com/bold-minds/ex/actions/workflows/test.yaml)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/bold-minds/ex)](go.mod)
-[![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/clairevnext/9018482451ea46f94327597398d10798/raw/coverage.json)](https://github.com/bold-minds/ex/actions/workflows/test.yaml)
+[![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/bold-admin/c7074f035bc8222b560455348e2d1704/raw/coverage.json)](https://github.com/bold-minds/ex/actions/workflows/test.yaml)
 
 A high-performance, idiomatic Go library for structured exception handling with full compatibility with Go's standard `errors` package.
 
