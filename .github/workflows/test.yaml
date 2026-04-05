@@ -104,7 +104,11 @@ jobs:
             echo '{"schemaVersion":1,"label":"golangci-lint","message":"0 issues","color":"brightgreen"}' > .github/badges/golangci-lint.json
           else
             # Count issues by running again and capturing output
-            ISSUES=$(golangci-lint run 2>&1 | grep -c "^.*\.go:" || echo "0")
+            # Match the canonical `file.go:line:col:` diagnostic prefix —
+            # the looser `^.*\.go:` pattern counted headers and multi-line
+            # continuation text, causing drift. Keep in sync with
+            # scripts/validate.sh.
+            ISSUES=$(golangci-lint run 2>&1 | grep -cE '^[^:]+\.go:[0-9]+:[0-9]+:' || true)
             if [[ $ISSUES -eq 0 ]]; then
               echo '{"schemaVersion":1,"label":"golangci-lint","message":"passing","color":"brightgreen"}' > .github/badges/golangci-lint.json
             else
@@ -119,18 +123,41 @@ jobs:
           # actual alert state. Use ${{ github.repository }}.
           REPO_SLUG="${{ github.repository }}"
           echo "🔍 Checking security alerts for $REPO_SLUG..."
-          DEPENDABOT_ALERTS=$(gh api "repos/$REPO_SLUG/dependabot/alerts" --jq 'length' 2>/dev/null || echo "0")
-          echo "Dependabot alerts: $DEPENDABOT_ALERTS"
+          # Distinguish API *errors* from a legitimate "0 alerts" response.
+          # The old `|| echo "0"` fallback silently turned a disabled
+          # code-scanning feature (or a token missing `security_events`
+          # scope) into a bright-green "all clear" badge. Any API failure
+          # now writes a "check failed" badge and skips the rest.
+          BADGE_FAILED=0
+          if ! DEPENDABOT_ALERTS=$(gh api "repos/$REPO_SLUG/dependabot/alerts" --jq 'length' 2>dep_err.log); then
+            echo "::warning::Dependabot alerts API failed:"
+            cat dep_err.log
+            echo '{"schemaVersion":1,"label":"security","message":"check failed","color":"lightgrey"}' > .github/badges/dependabot.json
+            BADGE_FAILED=1
+          fi
+          echo "Dependabot alerts: ${DEPENDABOT_ALERTS:-n/a}"
 
           echo "🔍 Checking code scanning alerts..."
-          gh api "repos/$REPO_SLUG/code-scanning/alerts" 2>&1 | head -5 || echo "Code scanning API failed"
-          CODE_SCANNING_ALERTS=$(gh api "repos/$REPO_SLUG/code-scanning/alerts" --jq '[.[] | select(.state == "open")] | length' 2>/dev/null || echo "0")
-          echo "Code scanning alerts: $CODE_SCANNING_ALERTS"
+          if [[ $BADGE_FAILED -eq 0 ]]; then
+            if ! CODE_SCANNING_ALERTS=$(gh api "repos/$REPO_SLUG/code-scanning/alerts" --jq '[.[] | select(.state == "open")] | length' 2>code_err.log); then
+              echo "::warning::Code scanning API failed:"
+              cat code_err.log
+              echo '{"schemaVersion":1,"label":"security","message":"check failed","color":"lightgrey"}' > .github/badges/dependabot.json
+              BADGE_FAILED=1
+            fi
+          fi
+          echo "Code scanning alerts: ${CODE_SCANNING_ALERTS:-n/a}"
+          rm -f dep_err.log code_err.log
           
+          if [[ $BADGE_FAILED -ne 0 ]]; then
+            echo "Skipping security badge computation (API failure recorded above)."
+            exit 0
+          fi
+
           TOTAL_ALERTS=$((DEPENDABOT_ALERTS + CODE_SCANNING_ALERTS))
           OPEN_PRS=$(gh pr list --author "app/dependabot" --state open --json number --jq 'length' 2>/dev/null || echo "0")
           echo "Total alerts: $TOTAL_ALERTS, Open PRs: $OPEN_PRS"
-          
+
           if [[ $TOTAL_ALERTS -gt 0 ]]; then
             if [[ $DEPENDABOT_ALERTS -gt 0 && $CODE_SCANNING_ALERTS -gt 0 ]]; then
               echo '{"schemaVersion":1,"label":"security","message":"'$TOTAL_ALERTS' alerts","color":"red"}' > .github/badges/dependabot.json

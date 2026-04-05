@@ -29,6 +29,11 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
+      with:
+        # Match the hardening in test.yaml — this workflow doesn't push,
+        # but dropping the default credential keeps us consistent and
+        # removes a latent foot-gun if a future step is added.
+        persist-credentials: false
 
     - name: Initialize CodeQL
       uses: github/codeql-action/init@v3

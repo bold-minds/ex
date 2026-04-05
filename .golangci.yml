@@ -7,16 +7,27 @@ linters:
   enable:
     - errcheck
     - errorlint
+    - gocritic
     - gosec
     - govet
     - ineffassign
     - misspell
     - predeclared
+    - revive
     - staticcheck
+    - unconvert
     - unused
   settings:
     errcheck:
       check-type-assertions: true
+    revive:
+      rules:
+        # Keep the exported-docs rule that golint used to enforce — this
+        # is a public library and every exported identifier should carry
+        # a comment starting with its name.
+        - name: exported
+          arguments:
+            - disableStutteringCheck
 
 formatters:
   enable:

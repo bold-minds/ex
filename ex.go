@@ -51,16 +51,25 @@ func (et ExType) String() string {
 // (e.g. WithInnerError) return a new Exception, leaving the receiver
 // unchanged. This makes Exception safe to share across goroutines.
 //
-// Although Exception is a struct, do not rely on the built-in == operator
-// to compare Exceptions: the innerError field holds an arbitrary error
-// whose dynamic type may be non-comparable (e.g. a struct containing a
-// slice, map, or func), which would panic at runtime. Use the provided
-// Is method, or errors.Is, instead.
+// Exception is deliberately not comparable with the built-in == operator.
+// The innerError field holds an arbitrary error whose dynamic type may be
+// non-comparable (e.g. a struct containing a slice, map, or func), which
+// would panic at runtime. Marking the struct non-comparable at compile
+// time is not cosmetic: the standard library's errors.Is attempts
+// `err == target` before falling back to the custom Is method, and that
+// check only runs when the static type is comparable. By making Exception
+// non-comparable we guarantee errors.Is routes through our Is method and
+// can never panic on non-comparable inner errors. Use Is, errors.Is, or
+// errors.As instead of ==.
 type Exception struct {
 	code       ExType
 	id         int
 	message    string
 	innerError error
+	// noCmp is a zero-sized, non-comparable marker that makes the
+	// surrounding struct non-comparable. Do not remove — see the type
+	// doc above for why this matters for errors.Is panic safety.
+	_ [0]func()
 }
 
 // Code is a read-only property for the exception type code
@@ -106,12 +115,11 @@ func (e Exception) Error() string {
 	}
 
 	switch {
-	case e.message == "" && innerMsg != "":
+	case e.message == "":
+		// innerMsg is "" when innerError is nil OR innerError.Error() == "";
+		// either way, returning it avoids a leading-colon bug and an empty
+		// inner is indistinguishable from no inner at the Error() layer.
 		return innerMsg
-	case e.message == "" && e.innerError != nil:
-		// Inner error exists but its message is empty; fall through to
-		// returning the (empty) message rather than a leading colon.
-		return ""
 	case innerMsg != "":
 		return e.message + ": " + innerMsg
 	default:

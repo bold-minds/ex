@@ -37,16 +37,11 @@ func Test_NewEx(t *testing.T) {
 			t.Errorf("Error message not correct: expected '%s'; got '%s'", testCase.errMsg, e.Message())
 		}
 
-		// Test error message format
-		if e.InnerError() != nil && e.InnerError().Error() != "" {
-			expectedErrorMessage := fmt.Sprintf("%s: %s", e.Message(), e.InnerError().Error())
-			if e.Error() != expectedErrorMessage {
-				t.Errorf("Error does not contain message and/or error: expected %s; got %s", expectedErrorMessage, e.Error())
-			}
-		} else {
-			if e.Error() != e.Message() {
-				t.Errorf("Error should equal message when no inner error: expected %s; got %s", e.Message(), e.Error())
-			}
+		// Test_NewEx only constructs via ex.New, which never sets an inner
+		// error — so Error() must always equal Message() here. The inner
+		// error/format permutations belong to Test_NewExWithInnerEx below.
+		if e.Error() != e.Message() {
+			t.Errorf("Error should equal message when no inner error: expected %s; got %s", e.Message(), e.Error())
 		}
 	}
 }
@@ -70,9 +65,9 @@ func Test_NewExWithInnerEx(t *testing.T) {
 			t.Errorf("Error message not correct: expected '%s'; got '%s'", testCase.errMsg, e.Message())
 		}
 
-		if e.InnerError() != testCase.innerErr {
-			t.Errorf("Inner error not correct: expected '%+v'; got '%+v'", testCase.innerErr, e.InnerError())
-		}
+		// Direct identity check — WithInnerError stores the error verbatim,
+		// so we want exact equality, not chain walking.
+		assert.Equal(t, testCase.innerErr, e.InnerError())
 
 		// Test error message format
 		if e.InnerError() != nil && e.InnerError().Error() != "" {
@@ -80,10 +75,8 @@ func Test_NewExWithInnerEx(t *testing.T) {
 			if e.Error() != expectedErrorMessage {
 				t.Errorf("Error does not contain message and/or error: expected %s; got %s", expectedErrorMessage, e.Error())
 			}
-		} else {
-			if e.Error() != e.Message() {
-				t.Errorf("Error should equal message when no inner error: expected %s; got %s", e.Message(), e.Error())
-			}
+		} else if e.Error() != e.Message() {
+			t.Errorf("Error should equal message when no inner error: expected %s; got %s", e.Message(), e.Error())
 		}
 	}
 }
@@ -195,11 +188,9 @@ func Test_UnwrapMethod(t *testing.T) {
 	innerErr := errors.New("inner error")
 	exc := ex.New(ex.ExTypeApplicationFailure, 500, "Outer error").WithInnerError(innerErr)
 
-	// Test direct unwrap
+	// Test direct unwrap — want exact identity of the stored inner error.
 	unwrapped := exc.Unwrap()
-	if unwrapped != innerErr {
-		t.Errorf("Unwrap should return the inner error: expected %v, got %v", innerErr, unwrapped)
-	}
+	assert.Equal(t, innerErr, unwrapped)
 
 	// Test unwrap with nil inner error
 	excWithoutInner := ex.New(ex.ExTypeIncorrectData, 400, "No inner error")
@@ -215,6 +206,11 @@ func TestExType_String(t *testing.T) {
 		exType   ex.ExType
 		expected string
 	}{
+		{
+			name:     "Zero value",
+			exType:   ex.ExType(0),
+			expected: "Invalid(0)",
+		},
 		{
 			name:     "IncorrectData",
 			exType:   ex.ExTypeIncorrectData,
@@ -326,8 +322,12 @@ func TestException_ErrorFormatting_EdgeCases(t *testing.T) {
 func TestException_LongChainTraversal(t *testing.T) {
 	// Build a 10-deep chain and assert full traversal via errors.Is / Unwrap.
 	root := errors.New("root cause")
-	var current error = root
-	for i := 0; i < 10; i++ {
+	// The explicit `error` type is required here: the loop below reassigns
+	// `current` to an ex.Exception value, which is only legal when the
+	// declared type is the interface. staticcheck's ST1023 would suggest
+	// omitting it, but doing so makes the file uncompilable.
+	var current error = root //nolint:staticcheck // ST1023: required for later interface reassignment
+	for i := range 10 {
 		current = ex.New(ex.ExTypeApplicationFailure, 500+i, "level").WithInnerError(current)
 	}
 
@@ -355,7 +355,7 @@ func TestException_ConcurrentUse(t *testing.T) {
 	var wg sync.WaitGroup
 	const workers = 32
 	wg.Add(workers)
-	for i := 0; i < workers; i++ {
+	for range workers {
 		go func() {
 			defer wg.Done()
 			_ = exc.Error()
@@ -444,4 +444,32 @@ func TestException_ImmutabilityCheck(t *testing.T) {
 		assert.Equal(t, inner, modified.InnerError())
 		assert.Equal(t, "Original: Inner", modified.Error())
 	})
+}
+
+// nonComparableError embeds a slice, which makes its dynamic type
+// non-comparable. The default Go == operator would panic if Exception
+// relied on it for equality; our custom Is method must not.
+type nonComparableError struct {
+	tags []string
+}
+
+func (nonComparableError) Error() string { return "non-comparable" }
+
+func TestException_IsDoesNotPanicOnNonComparableInner(t *testing.T) {
+	// Pins the contract documented on the Exception type: errors.Is must
+	// never panic even when the wrapped inner error has a non-comparable
+	// dynamic type. A regression here (e.g. reintroducing == fallback)
+	// would panic with "runtime error: comparing uncomparable type".
+	inner := nonComparableError{tags: []string{"a", "b"}}
+	exc := ex.New(ex.ExTypeApplicationFailure, 500, "outer").WithInnerError(inner)
+
+	assert.NotPanics(t, func() {
+		_ = errors.Is(exc, exc)
+	})
+	assert.NotPanics(t, func() {
+		_ = errors.Is(exc, errors.New("unrelated"))
+	})
+	// And equality on (Code, ID) still works through the non-comparable inner.
+	sameIdentity := ex.New(ex.ExTypeApplicationFailure, 500, "different message")
+	assert.True(t, errors.Is(exc, sameIdentity))
 }

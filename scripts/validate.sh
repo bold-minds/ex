@@ -139,6 +139,13 @@ check_environment() {
     return 0
 }
 
+# Pinned golangci-lint version. Must match the pin in
+# .github/workflows/test.yaml — both places install v2 at an exact tag so
+# local and CI lint behavior stay identical. @latest is forbidden (see the
+# comment in test.yaml): it would install whatever v2.x is current, which
+# can introduce lint churn on unrelated PRs. Bump via Dependabot/PR.
+GOLANGCI_LINT_VERSION="v2.1.6"
+
 # 🔍 Comprehensive linting with golangci-lint (includes security, TODOs, style)
 run_linting() {
     # Add GOPATH/bin to PATH if not already there
@@ -150,21 +157,25 @@ run_linting() {
     
     # Check if golangci-lint is available
     if ! command -v golangci-lint >/dev/null 2>&1; then
-        print_warning "golangci-lint not found, installing latest version..."
-        # Use the recommended installation method for latest version
-        if ! go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest; then
-            echo "Failed to install golangci-lint"
+        print_warning "golangci-lint not found, installing pinned ${GOLANGCI_LINT_VERSION}..."
+        # Pinned v2 install — the v1 import path ("cmd/golangci-lint") with
+        # @latest would install a v1 release that cannot parse our v2
+        # .golangci.yml, causing lint to fail with a config error for any
+        # developer without golangci-lint already installed.
+        if ! go install "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}"; then
+            echo "Failed to install golangci-lint ${GOLANGCI_LINT_VERSION}"
             echo "Try manual installation: https://golangci-lint.run/welcome/install/"
             return 1
         fi
-        print_info "golangci-lint installed successfully"
+        print_info "golangci-lint ${GOLANGCI_LINT_VERSION} installed successfully"
     fi
-    
-    # Run golangci-lint
+
+    # Run golangci-lint. Capture both stdout and exit code in a form that
+    # survives `set -e` without relying on `inherit_errexit`.
     local lint_output
-    lint_output=$(golangci-lint run --timeout=$TEST_TIMEOUT ./... 2>&1)
-    local lint_exit_code=$?
-    
+    local lint_exit_code=0
+    lint_output=$(golangci-lint run --timeout="$TEST_TIMEOUT" ./... 2>&1) || lint_exit_code=$?
+
     if [[ $lint_exit_code -ne 0 ]]; then
         echo "Linting failed:"
         echo "$lint_output"
@@ -431,8 +442,9 @@ generate_badges() {
     print_info "🐹 Go version badge: $go_version (Go blue)"
     
     # Generate last updated badge (shows when validation last ran)
-    LAST_COMMIT_DATE=$(git log -1 --format=%cd --date=short)
-    echo '{"schemaVersion":1,"label":"last updated","message":"'$LAST_COMMIT_DATE'","color":"teal"}' > .github/badges/last-updated.json
+    local last_commit_date
+    last_commit_date=$(git log -1 --format=%cd --date=short)
+    echo '{"schemaVersion":1,"label":"last updated","message":"'"$last_commit_date"'","color":"teal"}' > .github/badges/last-updated.json
     
     # Comprehensive security badge (Dependabot + Code Scanning).
     # Resolve the current repo from git instead of hardcoding a slug —
@@ -448,8 +460,27 @@ generate_badges() {
             echo '{"schemaVersion":1,"label":"security","message":"unknown","color":"lightgrey"}' > .github/badges/dependabot.json
             return 0
         fi
-        DEPENDABOT_ALERTS=$(gh api "repos/$repo_slug/dependabot/alerts" --jq 'length' 2>/dev/null || echo "0")
-        CODE_SCANNING_ALERTS=$(gh api "repos/$repo_slug/code-scanning/alerts" --jq '[.[] | select(.state == "open")] | length' 2>/dev/null || echo "0")
+        # Distinguish API *errors* from a legitimate "0 alerts" response —
+        # the old `|| echo "0"` fallback silently turned a disabled
+        # code-scanning feature (or a token missing `security_events` scope)
+        # into a bright-green "all clear" badge. Now any API failure writes
+        # a "check failed" badge and skips the rest of the block.
+        local dep_err code_err
+        dep_err=$(mktemp)
+        code_err=$(mktemp)
+        if ! DEPENDABOT_ALERTS=$(gh api "repos/$repo_slug/dependabot/alerts" --jq 'length' 2>"$dep_err"); then
+            print_warning "Dependabot alerts API failed: $(cat "$dep_err")"
+            echo '{"schemaVersion":1,"label":"security","message":"check failed","color":"lightgrey"}' > .github/badges/dependabot.json
+            rm -f "$dep_err" "$code_err"
+            return 0
+        fi
+        if ! CODE_SCANNING_ALERTS=$(gh api "repos/$repo_slug/code-scanning/alerts" --jq '[.[] | select(.state == "open")] | length' 2>"$code_err"); then
+            print_warning "Code scanning API failed: $(cat "$code_err")"
+            echo '{"schemaVersion":1,"label":"security","message":"check failed","color":"lightgrey"}' > .github/badges/dependabot.json
+            rm -f "$dep_err" "$code_err"
+            return 0
+        fi
+        rm -f "$dep_err" "$code_err"
         TOTAL_ALERTS=$((DEPENDABOT_ALERTS + CODE_SCANNING_ALERTS))
         OPEN_PRS=$(gh pr list --author "app/dependabot" --state open --json number --jq 'length' 2>/dev/null || echo "0")
         
