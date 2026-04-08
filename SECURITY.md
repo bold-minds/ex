@@ -2,46 +2,57 @@
 
 ## Supported Versions
 
-We release patches for security vulnerabilities. Which versions are eligible for receiving such patches depends on the CVSS v3.0 Rating:
+Only the **latest released minor version** receives security patches.
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 1.0.x   | :white_check_mark: |
+| latest  | :white_check_mark: |
+| older   | :x:                |
 
 ## Reporting a Vulnerability
 
-The `ex` team and community take security bugs seriously. We appreciate your efforts to responsibly disclose your findings, and will make every effort to acknowledge your contributions.
+**Do not open a public GitHub issue for security problems.**
 
-To report a security issue, please use the GitHub Security Advisory ["Report a Vulnerability"](https://github.com/bold-minds/ex/security/advisories/new) tab.
+### 1. Report Privately
 
-The `ex` team will send a response indicating the next steps in handling your report. After the initial reply to your report, the security team will keep you informed of the progress towards a fix and full announcement, and may ask for additional information or guidance.
+Report via **[GitHub Security Advisories](https://github.com/bold-minds/ex/security/advisories/new)**. This creates a confidential channel between you and the maintainers.
 
-### What to include in your report
+If the Security Advisories flow is unavailable, email **security@bold-minds.com**.
 
-Please include the following information along with your report:
+### 2. What to Include
 
-- Type of issue (e.g. buffer overflow, SQL injection, cross-site scripting, etc.)
-- Full paths of source file(s) related to the manifestation of the issue
-- The location of the affected source code (tag/branch/commit or direct URL)
-- Any special configuration required to reproduce the issue
-- Step-by-step instructions to reproduce the issue
-- Proof-of-concept or exploit code (if possible)
-- Impact of the issue, including how an attacker might exploit the issue
+- A description of the issue and its impact
+- Steps to reproduce or a proof-of-concept
+- The version affected
+- Your Go version and OS, if relevant
+- Any suggested mitigation
 
-This information will help us triage your report more quickly.
+### 3. Response Timeline
 
-## Preferred Languages
+- **Initial acknowledgement**: within 48 hours
+- **Triage + severity assessment**: within 7 days
+- **Resolution**: varies based on complexity, typically within 30 days
 
-We prefer all communications to be in English.
+You will be credited in the release notes unless you request otherwise.
 
-## Policy
+### 4. Disclosure Process
 
-- We will respond to your report within 72 hours with our evaluation of the report and an expected resolution date.
-- If you have followed the instructions above, we will not take any legal action against you in regard to the report.
-- We will handle your report with strict confidentiality, and not pass on your personal details to third parties without your permission.
-- We will keep you informed of the progress towards resolving the problem.
-- In the public disclosure, we will give your name as the discoverer of the problem (unless you desire otherwise).
+1. We acknowledge receipt of your vulnerability report
+2. We investigate and validate the vulnerability
+3. We develop and test a fix
+4. We coordinate disclosure timing with you
+5. We release a security update
+6. We publicly acknowledge your responsible disclosure (if desired)
 
-## Comments on this Policy
+## Security Updates
 
-If you have suggestions on how this process could be improved please submit a pull request.
+Security updates will be:
+
+- Released as patch versions
+- Documented in CHANGELOG.md
+- Announced through GitHub releases
+- Tagged with security labels
+
+## Acknowledgments
+
+We appreciate responsible disclosure and will acknowledge security researchers who help improve the security of this project.
