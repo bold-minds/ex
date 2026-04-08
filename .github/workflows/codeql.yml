@@ -28,7 +28,7 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       with:
         # Match the hardening in test.yaml — this workflow doesn't push,
         # but dropping the default credential keeps us consistent and
